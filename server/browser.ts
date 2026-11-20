@@ -485,9 +485,15 @@ const call = (s: Session, fn: string, ...args: any[]) => evalIn(s, `__perch.${fn
 
 // ---------- waiting ----------
 // After an action: if it started a navigation, wait for the load; then wait for the network to go quiet.
-export async function settle(s: Session, opts: { maxMs?: number; quietMs?: number } = {}) {
+export async function settle(s: Session, opts: { maxMs?: number; quietMs?: number; navGraceMs?: number } = {}) {
   const start = Date.now(), max = opts.maxMs ?? 8000, quiet = opts.quietMs ?? 350
   await sleep(60)
+  // a click on a link or submit button can take a moment to start its navigation (slow machines, CI);
+  // without this grace the network already looks quiet and we'd read the old page
+  if (opts.navGraceMs) {
+    const url = s.url
+    while (Date.now() - start < opts.navGraceMs && !s.navigating && !s.inflight.size && s.lastNetAt < start && s.url === url) await sleep(30)
+  }
   while (Date.now() - start < max) {
     if (s.navigating) { await sleep(80); continue }
     // requests open longer than 10s are long-polls or streams; don't wait on them
@@ -618,6 +624,12 @@ function stepLabel(st: Step) {
 }
 
 // Runs one step. Returns a line for the agent; throws on failure. The step is logged with a robust locator.
+// a click that should load a new page: a real link, or a submit button in a form
+function mayNavigate(info: { tag?: string; type?: string; form?: string; href?: string }) {
+  if (info.href && !/^(#|javascript:)/i.test(info.href)) return true
+  return !!info.form && (info.tag === 'button' ? (info.type || 'submit') === 'submit' : info.tag === 'input' && /^(submit|image)$/i.test(info.type ?? ''))
+}
+
 export async function runStep(s: Session, st: Step, opts: { replay?: boolean; locator?: Locator; healed?: string } = {}): Promise<string> {
   if (s.paused) throw new Error(`${ownerName()} has taken over this window. Wait (action=wait for=resume) or ask ${ownerName()}.`)
   const t0 = Date.now()
@@ -704,7 +716,7 @@ export async function runStep(s: Session, st: Step, opts: { replay?: boolean; lo
     }
     default: throw new Error(`unknown step ${st.do}`)
   }
-  await settle(s)
+  await settle(s, st.do === 'click' && mayNavigate(info) ? { navGraceMs: 1000 } : {})
   record({ locator, irreversible, secret })
   const how = opts.healed ? ` (healed: ${opts.healed})` : found.how !== 'ref' && found.how !== 'role+name' ? ` (found by ${found.how}${found.ambiguous ? ', ambiguous' : ''})` : ''
   return `${st.do} ${info.role} "${info.name}"${st.do === 'fill' || st.do === 'type' ? (secret ? ' = ••••' : ` = "${String(st.value ?? '').slice(0, 60)}"`) : st.do === 'select' ? ` = ${st.value}` : ''}${how}`
