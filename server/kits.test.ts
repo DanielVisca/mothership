@@ -91,3 +91,10 @@ test('a kit can’t write outside its skill folder', () => {
   writeFileSync(join(dir, 'kit.json'), JSON.stringify({ kit: 1, name: 'bad', version: '1', description: '', skills: ['../x'], routines: [], instructions: false }))
   assert.throws(() => kits.openKit(dir), /missing or badly named/)
 })
+
+test('a forbid line that is a plain path stays a literal, not a regex', () => {
+  const [path, rx] = readForbid('/Users/zed\n/\\bC0[A-Z0-9]{6,}\\b/')
+  assert.ok(path.test('see /Users/zed/code'))
+  assert.ok(!path.test('see /Users/zedd/code'))
+  assert.ok(rx.test('channel C0ABCDEF12'))
+})

@@ -57,10 +57,12 @@ export function scrubHits(files: { path: string; content: string }[], forbid: Re
 }
 
 // One pattern per line; blank lines and # comments skipped. Plain words match case-insensitively as whole words.
+// /regex/flags is a regex only when the flags are real ones, so a literal path like /Users/zed stays a literal.
 export function readForbid(text: string): RegExp[] {
   return text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#')).map(l => {
-    const m = l.match(/^\/(.+)\/([a-z]*)$/)
-    return m ? new RegExp(m[1], m[2]) : new RegExp(`(?<![\\w])${esc(l)}(?![\\w])`, 'i')
+    const m = l.match(/^\/(.+)\/([dgimsuvy]*)$/)
+    if (m) try { return new RegExp(m[1], m[2]) } catch {}
+    return new RegExp(`(?<![\\w])${esc(l)}(?![\\w])`, 'i')
   })
 }
 
